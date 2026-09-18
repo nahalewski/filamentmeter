@@ -55,7 +55,7 @@ Experimental **YOLO print watch** processes the printer camera on-device and war
 - Camera streaming currently implements the P1-series LAN JPEG protocol on port 6000. Other printer families may require a different camera protocol. Preview size controls do not increase the native camera frame rate or resolution.
 - Play resumes a paused job. Start new print files from your slicer.
 - Cost is an estimate: `sliced filament grams × progress fraction × price per gram`.
-- Camera streaming stops in the background; telemetry monitoring continues through a foreground service. Force-stop, restricted battery settings, or loss of LAN access can interrupt monitoring. Background monitoring uses additional battery.
+- Camera preview stops in the background unless experimental YOLO print watch needs frames for a running print. Telemetry monitoring continues through a foreground service. Force-stop, restricted battery settings, or loss of LAN access can interrupt monitoring. Background monitoring uses additional battery.
 - LAN controls depend on printer firmware and permissions. MQTT uses TLS port 8883 with the printer's local self-signed certificate; use a trusted local network.
 - Error descriptions come from Bambu Studio's cached English HMS catalog. Unknown codes link to the official troubleshooting hub.
 
@@ -78,6 +78,10 @@ For a signed release, set these environment variables to your private signing cr
 ```
 
 On Windows, use `gradlew.bat`. Without signing environment variables, the release variant produces an unsigned APK. Keep signing keys and passwords backed up outside this repository; they are required to distribute compatible updates.
+
+## License
+
+Copyright (C) 2026 Filament Meter contributors. Licensed under [AGPL-3.0](LICENSE), without warranty. Version 0.1.0-beta.2 includes the pinned YOLO model. See [third-party licenses and model provenance](THIRD_PARTY_NOTICES.md); dependencies retain their own terms. License texts and a source link are also available in Setup > Licenses and source.
 
 ## References and assets
 

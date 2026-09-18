@@ -16,7 +16,7 @@ Evaluation model source: [SebTC/FDM-Failure-Detection](https://github.com/SebTC/
 - Embedded license: **AGPL-3.0**. The repository's MIT label does not replace the license embedded in the model.
 - SHA-256: `583ca573c3dcdc900584153f169b03ed054676030c393b38415b3cfda3b7f6eb`.
 
-The model is ignored by Git. For local evaluation run `python tools/fetch_failure_model.py` before building. Without the model asset, the app reports detection unavailable. Resolve model licensing and source-distribution obligations before publishing an APK that includes it; the existing GitHub beta is unchanged.
+Starting with 0.1.0-beta.2, the pinned model is bundled in the APK and tracked in Git. The app is licensed under AGPL-3.0; see [licensing and model provenance](../THIRD_PARTY_NOTICES.md). Run `python tools/fetch_failure_model.py` only if you need to restore the original model asset. Without that asset, the app reports detection unavailable. License texts and a release-source link are available offline in Setup > Licenses and source (opening the source website requires internet access).
 
 The author evaluated primarily on an Ender 3 camera setup and disabled warping in their example configuration because of the camera angle. This integration exposes warping as an experimental class, **not verified P1S lift protection**. Visible raised edges may be detected; hidden edges, small defects, dark filament, occlusion, and low camera frame rates can cause misses. A clean result means no confident failure in that frame, not that the print is guaranteed good. Printed shapes can resemble failures.
 

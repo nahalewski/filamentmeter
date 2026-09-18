@@ -908,6 +908,7 @@ private fun SettingsScreen(
             Text("Printer notification settings")
         }
         com.ben.filamentmeter.ui.AlertSoundSettings()
+        com.ben.filamentmeter.ui.LicenseInfo()
         LanAccessCodeHelp()
     }
 }

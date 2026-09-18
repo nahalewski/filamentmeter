@@ -14,4 +14,3 @@ scratch_*
 signing.properties
 .env
 .env.*
-app/src/main/assets/failure_detector.tflite

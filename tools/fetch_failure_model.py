@@ -1,4 +1,4 @@
-"""Fetch the pinned research model for local evaluation; review its AGPL terms before distribution."""
+"""Restore the pinned AGPL-3.0 YOLO model; see THIRD_PARTY_NOTICES.md for provenance."""
 import hashlib
 import pathlib
 import urllib.request
@@ -11,4 +11,4 @@ with urllib.request.urlopen(URL, timeout=60) as response:
 if len(data) > 20_000_000 or hashlib.sha256(data).hexdigest() != SHA256:
     raise SystemExit("Model checksum mismatch; no model was installed.")
 target.write_bytes(data)
-print("Installed pinned YOLO failure model for local evaluation. Model metadata license: AGPL-3.0.")
+print("Restored pinned YOLO failure model. Model metadata license: AGPL-3.0.")
