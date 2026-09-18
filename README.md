@@ -14,6 +14,23 @@ Monitor a printer over your local network, estimate filament cost, view the P1-s
 - Bambu error descriptions, reported error codes, and official troubleshooting links.
 - Responsive home-screen widget with controls when expanded.
 - Built-in instructions for finding the printer LAN access code.
+- Upcoming: manual purging, failed-print, and scrap waste counters in Setup, with individual costs and a combined filament-wasted total.
+
+## Screenshots
+
+Actual Pixel Fold captures during a live P1S print. Printer IP addresses, serial numbers, and LAN access codes are not shown. Click an image to view it at full size.
+
+| Live cost and progress | Chamber camera and print controls |
+| --- | --- |
+| ![Live filament cost, print progress, layers, and remaining time](docs/screenshots/live-meter.png) | ![Live chamber camera with snapshot, recording, light, and print controls](docs/screenshots/camera-controls.png) |
+
+| Printer and AMS status | Camera tools |
+| --- | --- |
+| ![Detected P1S and AMS, active filament source, temperature, and humidity](docs/screenshots/printer-ams.png) | ![Camera preview size, zoom, fit, and reconnect controls](docs/screenshots/camera-tools.png) |
+
+**Waste counters — development preview, not included in the 0.1.0-beta.1 APK:**
+
+![Separate purging, failed-print, and scrap counters with total waste cost](docs/screenshots/waste-counters.png)
 
 ## Install and connect
 
