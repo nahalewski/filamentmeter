@@ -1,6 +1,6 @@
 # Filament Meter
 
-**0.1.0-beta.1** — an early beta Android companion for Bambu Lab printers.
+**0.1.0-beta.2** — an early beta Android companion for Bambu Lab printers.
 
 Monitor a printer over your local network, estimate filament cost, view the P1-series camera, and follow progress from a home-screen widget or quiet notification.
 
@@ -14,7 +14,10 @@ Monitor a printer over your local network, estimate filament cost, view the P1-s
 - Bambu error descriptions, reported error codes, and official troubleshooting links.
 - Responsive home-screen widget with controls when expanded.
 - Built-in instructions for finding the printer LAN access code.
-- Upcoming: manual purging, failed-print, and scrap waste counters in Setup, with individual costs and a combined filament-wasted total.
+- Separate saved printer profiles, network discovery, a fleet overview, and active-printer selection.
+- Per-printer estimated print history and dated purging, failed-print, and scrap waste records.
+- Current print model thumbnails retrieved from the printer, with tap-to-enlarge.
+- Experimental on-device YOLO detection with labeled camera overlays, captured warning evidence, and distinct sound/vibration alerts for spaghetti, lifting, and layer shifts. See [Print watch](docs/PRINT_WATCH.md) for model setup and limitations.
 
 ## Screenshots
 
@@ -28,7 +31,7 @@ Actual Pixel Fold captures during a live P1S print. Printer IP addresses, serial
 | --- | --- |
 | ![Detected P1S and AMS, active filament source, temperature, and humidity](docs/screenshots/printer-ams.png) | ![Camera preview size, zoom, fit, and reconnect controls](docs/screenshots/camera-tools.png) |
 
-**Waste counters — development preview, not included in the 0.1.0-beta.1 APK:**
+**Waste counters:**
 
 ![Separate purging, failed-print, and scrap counters with total waste cost](docs/screenshots/waste-counters.png)
 
@@ -45,6 +48,8 @@ Download the APK from [GitHub Releases](https://github.com/nahalewski/filamentme
 The signed release APK cannot update an older development APK signed with the Android debug key. Uninstall the development build before installing this release, then enter the printer settings again. Future releases using the same release key can update this beta normally.
 
 ## Beta limitations
+
+Experimental **YOLO print watch** processes the printer camera on-device and warns about possible failures; it does not automatically pause the printer. See [setup, model licensing, and detection limitations](docs/PRINT_WATCH.md) and the release notes for model availability.
 
 - Tested with a P1S on Pixel Fold and Pixel 9 Pro Fold. Other printer identities/artwork and AMS configurations are supported by telemetry parsing but are not all hardware-tested.
 - Camera streaming currently implements the P1-series LAN JPEG protocol on port 6000. Other printer families may require a different camera protocol. Preview size controls do not increase the native camera frame rate or resolution.
@@ -75,6 +80,8 @@ For a signed release, set these environment variables to your private signing cr
 On Windows, use `gradlew.bat`. Without signing environment variables, the release variant produces an unsigned APK. Keep signing keys and passwords backed up outside this repository; they are required to distribute compatible updates.
 
 ## References and assets
+
+See [multiple printers and cost records](docs/MULTI_PRINTER.md), [current model previews](docs/PRINT_PREVIEW.md), and [alert sounds](docs/ALERT_SOUNDS.md) for setup and limitations.
 
 This is an independent project, not an official Bambu Lab application. Printer and AMS artwork was supplied for this project; Bambu Lab names and marks belong to their respective owners. See `app/src/main/assets/printer_errors_source.txt` for error catalog provenance.
 

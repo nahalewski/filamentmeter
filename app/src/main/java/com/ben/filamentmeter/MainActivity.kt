@@ -50,6 +50,9 @@ import com.ben.filamentmeter.ui.AmsVisualRenderer
 import com.ben.filamentmeter.ui.PrinterScreen
 import com.ben.filamentmeter.ui.ConnectedHardwareCard
 import com.ben.filamentmeter.ui.LanAccessCodeHelp
+import com.ben.filamentmeter.ui.WasteCostSettings
+import com.ben.filamentmeter.ui.FleetPanel
+import com.ben.filamentmeter.ui.PrinterSelector
 import com.ben.filamentmeter.ui.theme.FilamentMeterTheme
 import com.ben.filamentmeter.widget.FilamentMeterWidgetProvider
 import java.util.Locale
@@ -66,6 +69,7 @@ class MainActivity : ComponentActivity() {
             notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
         enableEdgeToEdge()
+        intent.getStringExtra("printer_id")?.let(vm::selectPrinter)
         widgetCommand = intent.getStringExtra("printer_command")
         setContent { FilamentMeterTheme { App(vm, widgetCommand) { widgetCommand = null } } }
     }
@@ -73,6 +77,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        intent.getStringExtra("printer_id")?.let(vm::selectPrinter)
         widgetCommand = intent.getStringExtra("printer_command")
     }
 }
@@ -85,6 +90,10 @@ private fun App(vm: MainViewModel, widgetCommand: String?, clearWidgetCommand: (
     val settings by vm.settings.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val discoveryState by vm.discoveryState.collectAsStateWithLifecycle()
+    val fleetRevision by vm.fleetRevision.collectAsStateWithLifecycle()
+    val fleetStates by vm.fleetStates.collectAsStateWithLifecycle()
+    val profiles = remember(fleetRevision) { vm.fleet.profiles() }
+    val records = remember(fleetRevision) { vm.fleet.records() }
     var tab by remember { mutableStateOf(Tab.Meter) }
     LaunchedEffect(widgetCommand) { if (widgetCommand != null) tab = Tab.Printer }
 
@@ -122,13 +131,17 @@ private fun App(vm: MainViewModel, widgetCommand: String?, clearWidgetCommand: (
                 .padding(inner)
         ) {
             when (tab) {
-                Tab.Printer -> PrinterScreen(printer, settings, vm::printCommand, vm::setLight,
-                    vm::setRecording, { tab = Tab.Settings }, vm::connect)
+                Tab.Printer -> Column {
+                    PrinterSelector(profiles, settings.serialNumber) { clearWidgetCommand(); vm.selectPrinter(it) }
+                    key(settings.serialNumber) { PrinterScreen(printer, settings, vm::printCommand, vm::setLight,
+                        vm::setRecording, { tab = Tab.Settings }, vm::connect) }
+                }
                 Tab.Meter -> MeterScreen(
                     printer = printer,
                     settings = settings,
                     onConnect = vm::connect,
-                    onDisconnect = vm::disconnect
+                    onDisconnect = vm::disconnect,
+                    fleetContent = { FleetPanel(profiles,fleetStates,settings.serialNumber,records,vm::selectPrinter) }
                 )
                 Tab.Settings -> SettingsScreen(
                     settings = settings,
@@ -136,10 +149,11 @@ private fun App(vm: MainViewModel, widgetCommand: String?, clearWidgetCommand: (
                     onStartDiscovery = vm::startDiscovery,
                     onCancelDiscovery = vm::cancelDiscovery,
                     onResetDiscovery = vm::resetDiscovery,
-                    onSave = {
-                        vm.saveSettings(it)
-                        tab = Tab.Meter
-                    }
+                    profileName = profiles.find { it.id==settings.serialNumber }?.name.orEmpty(),
+                    profileModel = profiles.find { it.id==settings.serialNumber }?.model.orEmpty(),
+                    savedProfiles = profiles,
+                    fleetContent = { FleetPanel(profiles,fleetStates,settings.serialNumber,records,vm::selectPrinter,true) },
+                    onSave = { config, name, model -> vm.saveSettings(config,name,model) }
                 )
             }
         }
@@ -179,7 +193,8 @@ private fun MeterScreen(
     printer: PrinterState,
     settings: AppSettings,
     onConnect: () -> Unit,
-    onDisconnect: () -> Unit
+    onDisconnect: () -> Unit,
+    fleetContent: @Composable () -> Unit
 ) {
     val isRunning = printer.isPrinting
     val progress = if (isRunning) printer.progressPercent.coerceIn(0, 100) / 100.0 else 0.0
@@ -195,6 +210,8 @@ private fun MeterScreen(
             .padding(horizontal = 18.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        fleetContent()
+        com.ben.filamentmeter.ui.CurrentPrintCard(printer,settings)
         Row(
             Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
@@ -635,21 +652,31 @@ private fun SettingsScreen(
     onStartDiscovery: () -> Unit,
     onCancelDiscovery: () -> Unit,
     onResetDiscovery: () -> Unit,
-    onSave: (AppSettings) -> Unit
+    profileName: String,
+    profileModel: String,
+    savedProfiles: List<com.ben.filamentmeter.data.PrinterProfile>,
+    fleetContent: @Composable () -> Unit,
+    onSave: (AppSettings, String, String) -> Unit
 ) {
+    var name by remember(settings,profileName) { mutableStateOf(profileName) }
+    var model by remember(settings,profileModel) { mutableStateOf(profileModel) }
     var ip by remember(settings) { mutableStateOf(settings.printerIp) }
     var serial by remember(settings) { mutableStateOf(settings.serialNumber) }
     var accessCode by remember(settings) { mutableStateOf(settings.accessCode) }
     var spoolPrice by remember(settings) { mutableStateOf(settings.spoolPrice.toString()) }
     var spoolWeight by remember(settings) { mutableStateOf(settings.spoolWeightGrams.toString()) }
     var jobGrams by remember(settings) { mutableStateOf(settings.jobFilamentGrams.toString()) }
-
-    LaunchedEffect(discoveryState) {
-        if (discoveryState is DiscoveryState.Found) {
-            if (ip.isBlank()) ip = discoveryState.printer.ip
-            if (serial.isBlank()) serial = discoveryState.printer.serialNumber
-        }
-    }
+    var purgeGrams by remember(settings) { mutableStateOf(settings.purgingWasteGrams.toString()) }
+    var failedGrams by remember(settings) { mutableStateOf(settings.failedPrintWasteGrams.toString()) }
+    var scrapGrams by remember(settings) { mutableStateOf(settings.scrapWasteGrams.toString()) }
+    fun wasteNumber(value: String) = value.toDoubleOrNull()?.takeIf { it.isFinite() && it >= 0.0 } ?: 0.0
+    val waste = settings.copy(
+        spoolPrice = wasteNumber(spoolPrice),
+        spoolWeightGrams = wasteNumber(spoolWeight),
+        purgingWasteGrams = wasteNumber(purgeGrams),
+        failedPrintWasteGrams = wasteNumber(failedGrams),
+        scrapWasteGrams = wasteNumber(scrapGrams)
+    )
 
     Column(
         Modifier
@@ -664,6 +691,15 @@ private fun SettingsScreen(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
+        fleetContent()
+        OutlinedButton(onClick={
+            ip=""; serial=""; accessCode=""; name=""; model=""
+            purgeGrams="0"; failedGrams="0"; scrapGrams="0"
+            onResetDiscovery()
+        }) { Text("Add another printer") }
+        Text("Editing: ${name.ifBlank { "New printer" }}",style=MaterialTheme.typography.titleMedium)
+        OutlinedTextField(name,{name=it},label={Text("Printer name")},modifier=Modifier.fillMaxWidth(),singleLine=true)
+        OutlinedTextField(model,{model=it},label={Text("Model (for example H2S or P1S)")},modifier=Modifier.fillMaxWidth(),singleLine=true)
         SectionLabel("PRINTER CONNECTION")
 
         when (discoveryState) {
@@ -677,7 +713,7 @@ private fun SettingsScreen(
                 ) {
                     Icon(Icons.Default.Search, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
-                    Text("Auto-detect printer on network", fontWeight = FontWeight.SemiBold)
+                    Text("Find all printers on network", fontWeight = FontWeight.SemiBold)
                 }
             }
             is DiscoveryState.Scanning -> {
@@ -705,58 +741,18 @@ private fun SettingsScreen(
                 }
             }
             is DiscoveryState.Found -> {
-                val printer = discoveryState.printer
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                    ),
-                    shape = RoundedCornerShape(18.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(
-                        Modifier.padding(14.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Default.CheckCircle,
-                                null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                "Found ${printer.name}",
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                        Text(
-                            "IP: ${printer.ip}  •  SN: ${printer.serialNumber}",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                onClick = {
-                                    ip = printer.ip
-                                    serial = printer.serialNumber
-                                    onResetDiscovery()
-                                },
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Use printer details")
-                            }
-                            OutlinedButton(
-                                onClick = onResetDiscovery,
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text("Dismiss")
-                            }
-                        }
-                    }
+                Text("${discoveryState.printers.size} printers found on this network")
+                discoveryState.printers.forEach { found ->
+                    OutlinedButton(onClick={
+                        ip=found.ip; serial=found.serialNumber; name=found.name; model=found.model
+                        val saved = savedProfiles.find { it.id==found.serialNumber }?.settings ?: AppSettings()
+                        accessCode=saved.accessCode
+                        spoolPrice=saved.spoolPrice.toString(); spoolWeight=saved.spoolWeightGrams.toString(); jobGrams=saved.jobFilamentGrams.toString()
+                        purgeGrams=saved.purgingWasteGrams.toString(); failedGrams=saved.failedPrintWasteGrams.toString(); scrapGrams=saved.scrapWasteGrams.toString()
+                    },modifier=Modifier.fillMaxWidth()) { Text("Set up ${found.name} · ${found.ip}") }
                 }
+                Text("Choose a printer and enter its LAN access code. Saved printers remain in Your printers.")
+                TextButton(onClick=onStartDiscovery) { Text("Scan again") }
             }
             is DiscoveryState.NotFound -> {
                 Card(
@@ -852,6 +848,13 @@ private fun SettingsScreen(
             shape = RoundedCornerShape(18.dp)
         )
 
+        WasteCostSettings(
+            purgeGrams, failedGrams, scrapGrams, waste,
+            onPurge = { purgeGrams = cleanDecimal(it) },
+            onFailed = { failedGrams = cleanDecimal(it) },
+            onScrap = { scrapGrams = cleanDecimal(it) }
+        )
+
         Button(
             modifier = Modifier
                 .fillMaxWidth()
@@ -865,8 +868,11 @@ private fun SettingsScreen(
                         accessCode = accessCode.trim(),
                         spoolPrice = spoolPrice.toDoubleOrNull() ?: 0.0,
                         spoolWeightGrams = spoolWeight.toDoubleOrNull() ?: 1000.0,
-                        jobFilamentGrams = jobGrams.toDoubleOrNull() ?: 0.0
-                    )
+                        jobFilamentGrams = jobGrams.toDoubleOrNull() ?: 0.0,
+                        purgingWasteGrams = waste.purgingWasteGrams,
+                        failedPrintWasteGrams = waste.failedPrintWasteGrams,
+                        scrapWasteGrams = waste.scrapWasteGrams
+                    ), name, model
                 )
             }
         ) {
@@ -901,6 +907,7 @@ private fun SettingsScreen(
         OutlinedButton(onClick = { context.startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)) }) {
             Text("Printer notification settings")
         }
+        com.ben.filamentmeter.ui.AlertSoundSettings()
         LanAccessCodeHelp()
     }
 }

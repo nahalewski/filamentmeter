@@ -266,6 +266,9 @@ class BambuMqttClient(
             }
 
             // P1 printers often send delta updates, so preserve prior values when a field is absent.
+            val jobChanged = (print.has("subtask_id") && print.optString("subtask_id").isNotBlank() &&
+                print.optString("subtask_id") != current.jobId) ||
+                (print.has("subtask_name") && print.optString("subtask_name") != current.jobName)
             current = current.copy(
                 connected = lastStatusReportTimeMs != 0L,
                 statusText = "Connected",
@@ -275,6 +278,11 @@ class BambuMqttClient(
                 totalLayers = optIntKeep(print, "total_layer_num", current.totalLayers),
                 remainingMinutes = optIntKeep(print, "mc_remaining_time", current.remainingMinutes),
                 jobName = optStringKeep(print, "subtask_name", current.jobName),
+                jobId = optStringKeep(print, "subtask_id", current.jobId).takeUnless { it == "0" }.orEmpty(),
+                jobFile = optStringKeep(print,"gcode_file",if(jobChanged) "" else current.jobFile),
+                jobPlate = if (print.has("param")) Regex("plate_(\\d+)\\.gcode",RegexOption.IGNORE_CASE)
+                    .find(print.optString("param"))?.groupValues?.get(1)?.toIntOrNull()
+                    else if (jobChanged || print.has("gcode_file") && print.optString("gcode_file") != current.jobFile) null else current.jobPlate,
                 nozzleTemp = optDoubleKeep(print, "nozzle_temper", current.nozzleTemp),
                 bedTemp = optDoubleKeep(print, "bed_temper", current.bedTemp),
                 chamberLight = print.optJSONArray("lights_report")?.let { lights ->

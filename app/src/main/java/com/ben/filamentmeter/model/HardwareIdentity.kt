@@ -1,13 +1,14 @@
 package com.ben.filamentmeter.model
 
 enum class PrinterModel(val label: String) {
-    P1S("P1S"), P2S("P2S"), X1C("X1 Carbon"), A1_MINI("A1 mini"),
+    H2S("H2S"), P1S("P1S"), P2S("P2S"), X1C("X1 Carbon"), A1_MINI("A1 mini"),
     P1P("P1P"), X1("X1"), X1E("X1E"), A1("A1"), UNKNOWN("Unknown model");
 
     companion object {
         fun identify(model: String = "", serial: String = ""): PrinterModel {
             val normalized = model.uppercase().removePrefix("BAMBU LAB ").replace(" ", "").replace("_", "")
             return when (normalized) {
+                "H2S", "O1S", "O1S-V2" -> H2S
                 "P1S", "C12" -> P1S
                 "P2S", "C13" -> P2S
                 "X1C", "X1CARBON", "BLP001" -> X1C

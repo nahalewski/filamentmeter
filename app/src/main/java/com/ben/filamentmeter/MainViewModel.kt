@@ -22,11 +22,24 @@ import kotlinx.coroutines.launch
 sealed interface DiscoveryState {
     data object Idle : DiscoveryState
     data object Scanning : DiscoveryState
-    data class Found(val printer: DiscoveredPrinter) : DiscoveryState
+    data class Found(val printers: List<DiscoveredPrinter>) : DiscoveryState
     data object NotFound : DiscoveryState
 }
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
+    val fleet = com.ben.filamentmeter.data.FleetStore(application)
+    val fleetRevision = com.ben.filamentmeter.data.FleetStore.revision
+    val fleetStates = PrinterMonitor.fleetStates
+    fun selectPrinter(id: String) {
+        val selected = fleet.profiles().find { it.id == id } ?: return
+        PrinterMonitor.client = null
+        com.ben.filamentmeter.vision.CameraMonitor.frame.value = com.ben.filamentmeter.vision.CameraFrame(message="Switching printer")
+        com.ben.filamentmeter.vision.CameraMonitor.vision.value = com.ben.filamentmeter.vision.VisionStatus()
+        PrinterMonitor.state.value = PrinterState(model = com.ben.filamentmeter.model.PrinterModel.identify(selected.model,id))
+        store.save(selected.settings)
+        _settings.value = selected.settings
+        connect()
+    }
     private val store = SettingsStore(application)
     private val appContext = application.applicationContext
 
@@ -45,6 +58,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var discoveryJob: Job? = null
 
     init {
+        fleet.profiles()
         autoConnectIfConfigured()
     }
 
@@ -55,19 +69,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun saveSettings(settings: AppSettings) {
+    fun saveSettings(settings: AppSettings, name: String? = null, model: String? = null) {
         val safe = settings.copy(
             printerIp = settings.printerIp.trim(),
-            serialNumber = settings.serialNumber.trim(),
+            serialNumber = settings.serialNumber.trim().uppercase(),
             accessCode = settings.accessCode.trim(),
             spoolPrice = settings.spoolPrice.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0,
             spoolWeightGrams = settings.spoolWeightGrams.takeIf { it.isFinite() }?.coerceAtLeast(1.0) ?: 1000.0,
-            jobFilamentGrams = settings.jobFilamentGrams.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
+            jobFilamentGrams = settings.jobFilamentGrams.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0,
+            purgingWasteGrams = settings.purgingWasteGrams.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0,
+            failedPrintWasteGrams = settings.failedPrintWasteGrams.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0,
+            scrapWasteGrams = settings.scrapWasteGrams.takeIf { it.isFinite() }?.coerceAtLeast(0.0) ?: 0.0
         )
+        if (safe.serialNumber.isBlank() || safe.printerIp.isBlank() || safe.accessCode.isBlank()) {
+            _error.value = "Enter the printer IP, serial number and LAN access code before saving."; return
+        }
+        if (_settings.value.serialNumber != safe.serialNumber) {
+            PrinterMonitor.client = null
+            PrinterMonitor.state.value = PrinterState()
+        }
+        fleet.save(safe,name,model)
         store.save(safe)
         _settings.value = safe
+        store.saveWidgetSnapshot(_printer.value, safe)
         viewModelScope.launch(Dispatchers.IO) {
-            store.saveWidgetSnapshot(_printer.value, safe)
             FilamentMeterWidgetProvider.refreshAll(appContext)
         }
         if (safe.printerIp.isNotBlank() && safe.serialNumber.isNotBlank() && safe.accessCode.isNotBlank()) {
@@ -96,9 +121,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         discoveryJob?.cancel()
         _discoveryState.value = DiscoveryState.Scanning
         discoveryJob = viewModelScope.launch {
-            val printer = BambuDiscovery.discover(appContext, timeoutMs = 6000)
-            _discoveryState.value = if (printer != null) {
-                DiscoveryState.Found(printer)
+            val printers = BambuDiscovery.discoverAll(appContext, timeoutMs = 10000)
+            _discoveryState.value = if (printers.isNotEmpty()) {
+                DiscoveryState.Found(printers)
             } else {
                 DiscoveryState.NotFound
             }

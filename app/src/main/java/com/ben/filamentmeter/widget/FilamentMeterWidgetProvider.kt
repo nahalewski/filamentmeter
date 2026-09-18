@@ -71,6 +71,7 @@ class FilamentMeterWidgetProvider : AppWidgetProvider() {
             listOf(R.id.widget_play to "resume", R.id.widget_pause to "pause", R.id.widget_stop to "stop").forEach { (id, command) ->
                 val controlIntent = Intent(context, MainActivity::class.java).apply {
                     putExtra("printer_command", command)
+                    putExtra("printer_id", SettingsStore(context).load().serialNumber)
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
                 }
                 views.setOnClickPendingIntent(id, PendingIntent.getActivity(context, id, controlIntent,

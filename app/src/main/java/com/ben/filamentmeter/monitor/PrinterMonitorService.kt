@@ -13,8 +13,11 @@ import com.ben.filamentmeter.model.PrinterState
 import com.ben.filamentmeter.widget.FilamentMeterWidgetProvider
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import com.ben.filamentmeter.vision.CameraMonitor
+import com.ben.filamentmeter.vision.CameraSupervisor
 
 object PrinterMonitor {
+    val fleetStates = MutableStateFlow<Map<String, PrinterState>>(emptyMap())
     val state = MutableStateFlow(PrinterState())
     val error = MutableStateFlow<String?>(null)
     var client: BambuMqttClient? = null
@@ -31,29 +34,34 @@ object PrinterMonitor {
 
 class PrinterMonitorService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private lateinit var mqtt: BambuMqttClient
+    private val clients = mutableMapOf<String, BambuMqttClient>()
+    private val configurations = mutableMapOf<String, com.ben.filamentmeter.model.AppSettings>()
+    private val trackers = mutableMapOf<String, PrinterEvents>()
+    private lateinit var fleet: com.ben.filamentmeter.data.FleetStore
     private lateinit var manager: NotificationManager
     private lateinit var store: SettingsStore
-    private var settings: com.ben.filamentmeter.model.AppSettings? = null
-    private val events = PrinterEvents()
     private var lastRender = ""
     private var widgetAt = 0L
     private var alive = true
     private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var cameraSupervisor: CameraSupervisor? = null
 
     override fun onCreate() {
         super.onCreate()
         store = SettingsStore(this)
+        fleet = com.ben.filamentmeter.data.FleetStore(this)
         IssueCatalog.load(this)
         manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("printer_progress", "Printer progress", NotificationManager.IMPORTANCE_LOW).apply {
             description = "Quiet ongoing progress and connection status"
             setSound(null, null); enableVibration(false)
         })
-        manager.createNotificationChannel(NotificationChannel("printer_events", "Printer events", NotificationManager.IMPORTANCE_DEFAULT).apply {
-            description = "Print started, completed, paused, or needs attention"
-        })
+        AlertNotifications.createChannels(this)
         startForeground(100, notification(PrinterMonitor.state.value, false))
+        CameraMonitor.load(this)
+        cameraSupervisor = CameraSupervisor(this,scope) { kind, warning ->
+            manager.notify(102, AlertNotifications.build(this,kind,warning,store.load().serialNumber))
+        }
         wakeLock = getSystemService(android.os.PowerManager::class.java)
             .newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "FilamentMeter:printerMonitor")
             .apply { setReferenceCounted(false); acquire(10 * 60_000L) }
@@ -63,60 +71,80 @@ class PrinterMonitorService : Service() {
                 wakeLock?.acquire(10 * 60_000L)
             }
         }
-        mqtt = BambuMqttClient(onState = { state -> scope.launch {
+    }
+
+    private fun createClient(id: String): BambuMqttClient = BambuMqttClient(onState = { reported -> scope.launch {
             if (!alive) return@launch
-            PrinterMonitor.state.value = state
-            val event = events.accept(state)
+            val profile = fleet.profiles().find { it.id == id } ?: return@launch
+            val state = if (reported.model == com.ben.filamentmeter.model.PrinterModel.UNKNOWN)
+                reported.copy(model=com.ben.filamentmeter.model.PrinterModel.identify(profile.model,id)) else reported
+            PrinterMonitor.fleetStates.value = PrinterMonitor.fleetStates.value + (id to state)
+            fleet.observe(profile.settings,state)
+            val active = store.load().serialNumber == id
+            if (active) PrinterMonitor.state.value = state
+            val event = trackers.getOrPut(id) { PrinterEvents() }.accept(state)
             val render = "${state.connected}|${state.statusText}|${state.gcodeState}|${state.progressPercent}|${state.remainingMinutes}|${state.jobName}|${state.issueText}"
-            if (render != lastRender) {
+            if (active && render != lastRender) {
                 manager.notify(100, notification(state, false)); lastRender = render
             }
             val prefs = getSharedPreferences("monitor", 0)
-            val oldIssue = prefs.getString("lastIssue", "")
-            if (state.connected) prefs.edit().putString("lastIssue", state.issueText).apply()
+            val oldIssue = prefs.getString("lastIssue_$id", "")
+            if (state.connected) prefs.edit().putString("lastIssue_$id", state.issueText).apply()
             if (event != null && (event != "Printer needs attention" || oldIssue != state.issueText))
-                manager.notify(101, notification(state, true, event))
+                manager.notify(id, 101, notification(state, true, "${profile.name}: $event", id))
             val now = android.os.SystemClock.elapsedRealtime()
-            if (event != null || now - widgetAt >= 5000 || !state.connected) {
+            if (active && (event != null || now - widgetAt >= 5000 || !state.connected)) {
                 widgetAt = now
+                store.saveWidgetSnapshot(state, profile.settings)
                 withContext(Dispatchers.IO) {
-                    store.saveWidgetSnapshot(state, store.load())
                     FilamentMeterWidgetProvider.refreshAll(this@PrinterMonitorService)
                 }
             }
-        } }, onError = { PrinterMonitor.error.value = it })
-        PrinterMonitor.client = mqtt
-    }
+        } }, onError = { if (store.load().serialNumber == id) PrinterMonitor.error.value = it })
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val next = store.load()
         if (!PrinterMonitor.enabled(this) || next.printerIp.isBlank() || next.serialNumber.isBlank() || next.accessCode.isBlank()) {
             stopSelf(); return START_NOT_STICKY
         }
-        val old = settings
-        if (old == null || old.printerIp != next.printerIp || old.serialNumber != next.serialNumber || old.accessCode != next.accessCode) {
-            events.reset()
-            mqtt.connect(next)
+        for (profile in fleet.profiles()) {
+            val config = profile.settings
+            if (config.printerIp.isBlank() || config.accessCode.isBlank()) continue
+            val client = clients.getOrPut(profile.id) { createClient(profile.id) }
+            val old = configurations[profile.id]
+            if (old == null || old.printerIp != config.printerIp || old.accessCode != config.accessCode) {
+                trackers[profile.id]?.reset()
+                configurations[profile.id] = config
+                client.connect(config)
+            }
         }
-        settings = next
+        PrinterMonitor.client = clients[next.serialNumber]
+        PrinterMonitor.state.value = PrinterMonitor.fleetStates.value[next.serialNumber] ?: PrinterState()
+        lastRender = ""
+        manager.notify(100, notification(PrinterMonitor.state.value, false))
+        store.saveWidgetSnapshot(PrinterMonitor.state.value,next)
+        FilamentMeterWidgetProvider.refreshAll(this)
+        cameraSupervisor?.update(next)
         return START_STICKY
     }
 
-    private fun notification(state: PrinterState, alert: Boolean, event: String? = null): Notification {
+    private fun notification(state: PrinterState, alert: Boolean, event: String? = null, printerId: String = store.load().serialNumber): Notification {
         val open = PendingIntent.getActivity(this, 10, Intent(this, MainActivity::class.java)
+            .setData(android.net.Uri.parse("filamentmeter://printer/${android.net.Uri.encode(printerId)}"))
+            .putExtra("printer_id",printerId)
             .putExtra("printer_command", "view").addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val title = event ?: if (!state.connected) "Printer · Reconnecting" else "${state.printerName} · ${state.displayStatus}"
         val detail = if (!state.connected) "Waiting for the printer on your local network. Reconnecting automatically."
             else state.issueText.ifBlank { when {
                 state.gcodeState.equals("PREPARE", true) -> "${state.jobName} · Preparing printer. Progress will appear when printing begins."
-                event == "Print started" -> "${state.jobName} · Print started. Follow the ongoing notification for live progress."
+                event?.endsWith("Print started") == true -> "${state.jobName} · Print started. Follow the ongoing notification for live progress."
                 state.canResume -> "${state.jobName} · Paused at ${state.progressPercent}%. Check the printer, then resume when ready."
                 state.isPrinting -> "${state.jobName} · ${state.progressPercent}% · ${state.remainingMinutes} min remaining"
                 state.gcodeState.equals("FINISH", true) -> "${state.jobName} · Print completed"
                 state.gcodeState.equals("FAILED", true) -> "Print stopped or failed. Check the printer screen for details before restarting."
                 else -> "Connected and ready. Monitoring in the background."
             } }
-        return NotificationCompat.Builder(this, if (alert) "printer_events" else "printer_progress")
+        return NotificationCompat.Builder(this, if (alert) AlertNotifications.EVENTS else "printer_progress")
             .setSmallIcon(R.drawable.ic_bambu_printer).setContentTitle(title).setContentText(detail)
             .setStyle(NotificationCompat.BigTextStyle().bigText(detail)).setContentIntent(open)
             .setOnlyAlertOnce(!alert).setSilent(!alert).setOngoing(!alert).setAutoCancel(alert)
@@ -131,8 +159,11 @@ class PrinterMonitorService : Service() {
 
     override fun onDestroy() {
         alive = false
+        cameraSupervisor?.close()
         PrinterMonitor.client = null
-        mqtt.disconnect()
+        clients.values.forEach { it.disconnect() }
+        clients.clear()
+        PrinterMonitor.fleetStates.value = PrinterMonitor.fleetStates.value.mapValues { it.value.copy(connected=false,statusText="Disconnected") }
         PrinterMonitor.state.value = PrinterMonitor.state.value.copy(connected = false, statusText = "Disconnected")
         scope.cancel()
         wakeLock?.let { if (it.isHeld) it.release() }

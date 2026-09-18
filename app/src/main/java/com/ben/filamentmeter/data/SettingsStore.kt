@@ -13,7 +13,10 @@ class SettingsStore(context: Context) {
         accessCode = prefs.getString("access_code", "") ?: "",
         spoolPrice = prefs.getString("spool_price", "24.99")?.toDoubleOrNull() ?: 24.99,
         spoolWeightGrams = prefs.getString("spool_weight", "1000")?.toDoubleOrNull() ?: 1000.0,
-        jobFilamentGrams = prefs.getString("job_grams", "100")?.toDoubleOrNull() ?: 100.0
+        jobFilamentGrams = prefs.getString("job_grams", "100")?.toDoubleOrNull() ?: 100.0,
+        purgingWasteGrams = prefs.getString("waste_purging_grams", "0")?.toDoubleOrNull() ?: 0.0,
+        failedPrintWasteGrams = prefs.getString("waste_failed_print_grams", "0")?.toDoubleOrNull() ?: 0.0,
+        scrapWasteGrams = prefs.getString("waste_scrap_grams", "0")?.toDoubleOrNull() ?: 0.0
     )
 
     fun save(settings: AppSettings) {
@@ -24,6 +27,9 @@ class SettingsStore(context: Context) {
             .putString("spool_price", settings.spoolPrice.toString())
             .putString("spool_weight", settings.spoolWeightGrams.toString())
             .putString("job_grams", settings.jobFilamentGrams.toString())
+            .putString("waste_purging_grams", settings.purgingWasteGrams.toString())
+            .putString("waste_failed_print_grams", settings.failedPrintWasteGrams.toString())
+            .putString("waste_scrap_grams", settings.scrapWasteGrams.toString())
             .apply()
     }
 

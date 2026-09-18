@@ -11,8 +11,9 @@ android {
         applicationId = "com.ben.filamentmeter"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.1.0-beta.1"
+        versionCode = 3
+        versionName = "0.1.0-beta.2"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -58,6 +59,10 @@ android {
 }
 
 dependencies {
+    implementation("commons-net:commons-net:3.11.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    implementation("com.google.ai.edge.litert:litert:1.4.2")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
     implementation("androidx.core:core-ktx:1.13.1")

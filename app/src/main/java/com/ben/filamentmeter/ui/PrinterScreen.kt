@@ -34,7 +34,8 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.ben.filamentmeter.bambu.BambuCamera
+import com.ben.filamentmeter.vision.CameraMonitor
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ben.filamentmeter.model.AppSettings
 import com.ben.filamentmeter.model.PrinterState
 import kotlinx.coroutines.Dispatchers
@@ -53,10 +54,17 @@ fun PrinterScreen(printer: PrinterState, settings: AppSettings,
     onSetup: () -> Unit, onConnect: () -> Unit) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var frame by remember { mutableStateOf<Bitmap?>(null) }
-    var cameraMessage by remember { mutableStateOf("Connecting camera…") }
-    var live by remember { mutableStateOf(false) }
-    var lastFrame by remember { mutableLongStateOf(0L) }
+    val cameraState by CameraMonitor.frame.collectAsStateWithLifecycle()
+    val vision by CameraMonitor.vision.collectAsStateWithLifecycle()
+    val visionOptions by CameraMonitor.options.collectAsStateWithLifecycle()
+    var overlayClock by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(visionOptions.enabled) {
+        while (visionOptions.enabled && isActive) { overlayClock=System.currentTimeMillis(); delay(500) }
+    }
+    val frame = cameraState.bitmap
+    val cameraMessage = cameraState.message
+    val live = cameraState.bitmap != null && cameraState.message == "Live"
+    val lastFrame = cameraState.at
     var enabled by rememberSaveable { mutableStateOf(true) }
     var auto by rememberSaveable { mutableStateOf(true) }
     var retry by remember { mutableIntStateOf(0) }
@@ -76,33 +84,12 @@ fun PrinterScreen(printer: PrinterState, settings: AppSettings,
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    DisposableEffect(settings.printerIp, settings.accessCode, enabled, foreground, retry, auto) {
-        frame = null
-        live = false
-        val camera = BambuCamera()
-        val active = java.util.concurrent.atomic.AtomicBoolean(true)
-        val job = if (enabled && foreground) scope.launch(Dispatchers.IO) {
-            do {
-                withContext(Dispatchers.Main) { cameraMessage = "Connecting camera…" }
-                try {
-                    camera.stream(settings) { bitmap ->
-                        scope.launch(Dispatchers.Main) frameUpdate@{
-                            if (!active.get()) return@frameUpdate
-                            frame = bitmap; live = true; lastFrame = System.currentTimeMillis()
-                            cameraMessage = "Live"
-                        }
-                    }
-                } catch (_: Exception) {
-                    withContext(Dispatchers.Main) {
-                        live = false
-                        cameraMessage = if (settings.printerIp.isBlank()) "Configure your printer in Setup" else "Camera unavailable · check LAN access"
-                    }
-                }
-                if (auto && isActive) delay(5000)
-            } while (auto && isActive)
-        } else null
-        onDispose { active.set(false); camera.close(); job?.cancel() }
+    DisposableEffect(enabled, foreground, retry, auto) {
+        CameraMonitor.preview = enabled && foreground
+        CameraMonitor.autoReconnect = auto
+        onDispose { CameraMonitor.preview = false }
     }
+    LaunchedEffect(retry) { if (retry > 0) CameraMonitor.retry++ }
     val saveImage = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/jpeg")) { uri: Uri? ->
         val file = snapshot
         if (uri != null && file != null) scope.launch {
@@ -129,7 +116,7 @@ fun PrinterScreen(printer: PrinterState, settings: AppSettings,
     }
     val cameraView: @Composable (Modifier) -> Unit = { modifier ->
         Box(modifier.clip(RoundedCornerShape(22.dp)).background(Color.Black)) {
-            frame?.let { bitmap ->
+            frame?.takeIf { enabled }?.let { bitmap ->
                 val preview = remember(bitmap, resolution) {
                     if (bitmap.height > resolution) Bitmap.createScaledBitmap(bitmap,
                         bitmap.width * resolution / bitmap.height, resolution, true) else bitmap
@@ -137,8 +124,12 @@ fun PrinterScreen(printer: PrinterState, settings: AppSettings,
                 Image(preview.asImageBitmap(), "Printer chamber camera", Modifier.fillMaxSize()
                     .graphicsLayer(scaleX = zoom, scaleY = zoom),
                     contentScale = if (fit) ContentScale.Fit else ContentScale.Crop)
+                if (live && printer.canPause && visionOptions.enabled &&
+                    com.ben.filamentmeter.vision.detectionOverlayFresh(vision.checkedAt,overlayClock)) {
+                    DetectionOverlay(vision.boxes,preview.width,preview.height,fit,zoom,Modifier.matchParentSize())
+                }
             }
-            if (!live) Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            if (!live || !enabled) Column(Modifier.align(Alignment.Center).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Icon(Icons.Default.VideocamOff, null, tint = Color.Gray, modifier = Modifier.size(36.dp))
                 Text(if (enabled) cameraMessage else "Camera hidden", color = Color.LightGray)
             }
@@ -153,8 +144,18 @@ fun PrinterScreen(printer: PrinterState, settings: AppSettings,
                 Tool(Icons.Default.MicOff, "Camera has no audio", false) {}
                 Tool(Icons.Default.Lightbulb, "Chamber light", printer.connected, printer.chamberLight) { onLight(!printer.chamberLight) }
             }
-            Text(if (lastFrame == 0L) "Waiting for camera" else SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(lastFrame)),
-                Modifier.align(Alignment.BottomStart).background(Color.Black.copy(alpha = .6f)).padding(10.dp), color = Color.LightGray, fontSize = 11.sp)
+            Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().background(Color.Black.copy(alpha = .7f)).padding(10.dp)) {
+                Text(when {
+                    !visionOptions.enabled -> "YOLO off · enable Print watch below"
+                    !enabled -> "YOLO overlay hidden"
+                    !live || !printer.canPause -> "YOLO · waiting for live printing camera"
+                    !com.ben.filamentmeter.vision.detectionOverlayFresh(vision.checkedAt,overlayClock) -> "YOLO · ${vision.message}"
+                    vision.boxes.isEmpty() -> "YOLO · no detections in last scan"
+                    else -> "YOLO · ${vision.boxes.size} possible issue(s) · last scan ${(overlayClock-vision.checkedAt)/1000}s ago"
+                },color=Color.White,fontSize=12.sp)
+                Text(if (lastFrame == 0L) "Waiting for camera" else SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date(lastFrame)),
+                    color = Color.LightGray, fontSize = 11.sp)
+            }
         }
     }
     if (fullscreen) Dialog(onDismissRequest = { fullscreen = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -179,6 +180,8 @@ fun PrinterScreen(printer: PrinterState, settings: AppSettings,
             Button(onClick = { stop = true }, enabled = printer.canStop, modifier = Modifier.weight(1f), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.errorContainer, contentColor = MaterialTheme.colorScheme.onErrorContainer)) { Icon(Icons.Default.Stop, "Stop print") }
         }
         Text("Play resumes a paused print. Start new jobs from your slicer.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        CurrentPrintCard(printer,settings)
+        FailureDetectionCard(printer.connected)
         Card {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {

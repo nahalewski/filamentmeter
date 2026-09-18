@@ -4,6 +4,9 @@ import android.content.Context
 import android.net.wifi.WifiManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import java.net.DatagramPacket
 import java.net.InetAddress
 import java.net.MulticastSocket
@@ -20,7 +23,9 @@ object BambuDiscovery {
     private const val MULTICAST_GROUP = "239.255.255.250"
     private val PORTS = listOf(2021, 1990)
 
-    suspend fun discover(context: Context, timeoutMs: Long = 5000): DiscoveredPrinter? = withContext(Dispatchers.IO) {
+    suspend fun discover(context: Context, timeoutMs: Long = 5000): DiscoveredPrinter? = discoverAll(context,timeoutMs).firstOrNull()
+
+    suspend fun discoverAll(context: Context, timeoutMs: Long = 6000): List<DiscoveredPrinter> = withContext(Dispatchers.IO) {
         val wifiManager = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
         val lock = wifiManager?.createMulticastLock("BambuDiscoveryLock")?.apply {
             setReferenceCounted(true)
@@ -28,14 +33,8 @@ object BambuDiscovery {
         }
 
         try {
-            val endTime = System.currentTimeMillis() + timeoutMs
-            for ((index, port) in PORTS.withIndex()) {
-                val remainingTime = endTime - System.currentTimeMillis()
-                if (remainingTime <= 0) break
-                val printer = listenOnPort(port, (remainingTime / (PORTS.size - index)).toInt())
-                if (printer != null) return@withContext printer
-            }
-            null
+            coroutineScope { PORTS.map { port -> async(Dispatchers.IO) { listenOnPort(port,timeoutMs.toInt()) } }
+                .awaitAll().flatten().distinctBy { it.serialNumber } }
         } finally {
             try {
                 if (lock != null && lock.isHeld) {
@@ -45,14 +44,19 @@ object BambuDiscovery {
         }
     }
 
-    private fun listenOnPort(port: Int, timeoutMs: Int): DiscoveredPrinter? {
+    private fun listenOnPort(port: Int, timeoutMs: Int): List<DiscoveredPrinter> {
         var socket: MulticastSocket? = null
+        val found = linkedMapOf<String,DiscoveredPrinter>()
         return try {
-            socket = MulticastSocket(port).apply {
+            socket = MulticastSocket(null).apply {
                 soTimeout = timeoutMs.coerceAtLeast(1000)
                 reuseAddress = true
+                bind(java.net.InetSocketAddress(port))
                 val group = InetAddress.getByName(MULTICAST_GROUP)
                 joinGroup(group)
+                val search = ("M-SEARCH * HTTP/1.1\r\nHOST: $MULTICAST_GROUP:$port\r\n" +
+                    "MAN: \"ssdp:discover\"\r\nMX: 3\r\nST: urn:bambulab-com:device:3dprinter:1\r\n\r\n").toByteArray()
+                runCatching { send(DatagramPacket(search,search.size,group,port)) }
             }
 
             val buffer = ByteArray(4096)
@@ -67,15 +71,15 @@ object BambuDiscovery {
                     val raw = String(packet.data, 0, packet.length, Charsets.UTF_8)
                     val printer = parsePacket(raw, packet.address?.hostAddress)
                     if (printer != null) {
-                        return printer
+                        found[printer.serialNumber] = printer
                     }
                 } catch (_: SocketTimeoutException) {
                     break
                 }
             }
-            null
+            found.values.toList()
         } catch (_: Throwable) {
-            null
+            found.values.toList()
         } finally {
             try {
                 socket?.leaveGroup(InetAddress.getByName(MULTICAST_GROUP))

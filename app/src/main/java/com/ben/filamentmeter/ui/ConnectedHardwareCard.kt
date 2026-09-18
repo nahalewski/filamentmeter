@@ -15,6 +15,7 @@ import com.ben.filamentmeter.R
 import com.ben.filamentmeter.model.*
 
 fun PrinterModel.artwork(): Int? = when (this) {
+    PrinterModel.H2S -> R.drawable.hardware_h2s
     PrinterModel.P1S -> R.drawable.hardware_p1s
     PrinterModel.P2S -> R.drawable.hardware_p2s
     PrinterModel.X1C -> R.drawable.hardware_x1c
