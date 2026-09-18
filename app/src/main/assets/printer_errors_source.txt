@@ -1,0 +1,5 @@
+English device_error and device_hms descriptions from Bambu Lab's HMS catalog,
+cached by Bambu Studio as hms_en_01P.json on 2026-09-16.
+Descriptions are keyed by the exact printer-reported hexadecimal code.
+Unknown codes retain their code and link to the official HMS troubleshooting hub.
+Official troubleshooting: https://wiki.bambulab.com/en/hms/home

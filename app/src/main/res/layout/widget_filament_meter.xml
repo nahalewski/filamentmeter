@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_bg"
+    android:orientation="vertical"
+    android:padding="16dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/widget_job_name"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="No active print"
+            android:textColor="#F4F7F5"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_status"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="OFFLINE"
+            android:textColor="#39E68C"
+            android:textSize="11sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        android:gravity="bottom">
+
+        <TextView
+            android:id="@+id/widget_cost"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="$0.00"
+            android:textColor="#39E68C"
+            android:textSize="28sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/widget_percent"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="0%"
+            android:textColor="#C8D0CB"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <ImageView
+        android:id="@+id/widget_ams_image"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp"
+        android:scaleType="fitCenter"
+        android:contentDescription="AMS Unit" />
+
+    <TextView android:id="@+id/widget_hardware_label" android:layout_width="match_parent"
+        android:layout_height="wrap_content" android:textColor="#8F9993" android:textSize="10sp"
+        android:maxLines="1" android:ellipsize="end" android:text="Hardware not identified" />
+
+    <ProgressBar
+        android:id="@+id/widget_progress"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="8dp"
+        android:layout_marginTop="8dp"
+        android:max="100"
+        android:progress="0"
+        android:progressDrawable="@drawable/widget_progress_track" />
+
+    <TextView
+        android:id="@+id/widget_subtitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="0.0 g used • Layer —"
+        android:textColor="#8F9993"
+        android:textSize="12sp" />
+    <LinearLayout android:id="@+id/widget_controls" android:layout_width="match_parent"
+        android:layout_height="48dp" android:layout_marginTop="10dp" android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView android:id="@+id/widget_play" android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center" android:background="@drawable/widget_control_play"
+            android:text="▶" android:textSize="24sp" android:textColor="#39E68C" android:contentDescription="Resume print" />
+        <TextView android:id="@+id/widget_pause" android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:layout_marginHorizontal="8dp" android:gravity="center" android:background="@drawable/widget_control_pause"
+            android:text="Ⅱ" android:textSize="24sp" android:textColor="#F4F7F5" android:contentDescription="Pause print" />
+        <TextView android:id="@+id/widget_stop" android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:gravity="center" android:background="@drawable/widget_control_stop"
+            android:text="■" android:textSize="24sp" android:textColor="#FF5365" android:contentDescription="Stop print" />
+    </LinearLayout>
+</LinearLayout>

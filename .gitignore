@@ -1,0 +1,16 @@
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+scratch/
+scratch_*
+/*.png
+*.apk
+*.aab
+*.jks
+*.keystore
+*.p12
+signing.properties
+.env
+.env.*
